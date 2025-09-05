@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 # creating session state variables
-sc.initialize("env_path", ".\\credientials\\.env")
+sc.initialize("env_path", ".env")
 
 
 # loading variables
