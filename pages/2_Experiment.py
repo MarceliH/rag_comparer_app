@@ -36,20 +36,28 @@ elif not all_correct:
     st.warning("Some of the required variables are not checked. Please go to Setup page.")
 
 # Initialize ChromaDB client
-chroma_client = instantiate_chroma_client(chroma_path=sc.gets("CHROMADB_PATH"))
-if chroma_client is None:
-    st.error("ChromaDB client could not be instantiated. Please check the CHROMADB_PATH variable in Setup page.")
-    st.stop()
+if "chroma_client" not in st.session_state:
+    chroma_client = instantiate_chroma_client(chroma_path=sc.gets("CHROMADB_PATH"))
+    if chroma_client is None:
+        st.error("ChromaDB client could not be instantiated. Please check the CHROMADB_PATH variable in Setup page.")
+        st.stop()
+    st.session_state.chroma_client = chroma_client
+else:
+    chroma_client = st.session_state.chroma_client
 
 # Initialize Neo4j graph
-neo4j_graph = instantiate_neo4j_graph(
-    uri=sc.gets("NEO4J_URI"),
-    username=sc.gets("NEO4J_USERNAME"),
-    password=sc.gets("NEO4J_PASSWORD"),
-)
-if neo4j_graph is None:
-    st.error("Neo4j graph could not be instantiated. Please check the Neo4j connection variables in Setup page.")
-    st.stop()
+if "neo4j_graph" not in st.session_state:
+    neo4j_graph = instantiate_neo4j_graph(
+        uri=sc.gets("NEO4J_URI"),
+        username=sc.gets("NEO4J_USERNAME"),
+        password=sc.gets("NEO4J_PASSWORD"),
+    )
+    if neo4j_graph is None:
+        st.error("Neo4j graph could not be instantiated. Please check the Neo4j connection variables in Setup page.")
+        st.stop()
+    st.session_state.neo4j_graph = neo4j_graph
+else:
+    neo4j_graph = st.session_state.neo4j_graph
 
 
 ## PAGE ##
