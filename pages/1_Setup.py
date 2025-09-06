@@ -12,7 +12,7 @@ st.set_page_config(
 )
 
 # initialize in case of refresh on setup page
-sc.initialize("env_path", ".\\credientials\\.env")
+sc.initialize("env_path", ".env")
 
 # list of required variables
 # states: 0 = not set, 1 = set but incorrect, 2 = set and correct
