@@ -1,25 +1,37 @@
-import os
+from http import client
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 import chromadb
 from chromadb.api import ClientAPI
 import time
+import os
+import logging
+
+def instantiate_chroma_client(chroma_path: str | None = None) -> ClientAPI | None:
+    try:
+        if chroma_path is not None:
+            return chromadb.PersistentClient(path=chroma_path)
+        env_path = os.getenv("CHROMADB_PATH")
+        if env_path is None:
+            return None
+        return chromadb.PersistentClient(path=env_path)
+    except (OSError, ValueError) as e:
+        logging.error(f"Error instantiating ChromaDB client: {e}")
+        return None
 
 
-def get_chroma_collections(chroma_path: str | None = None):
-    client = chromadb.PersistentClient(chroma_path if chroma_path else os.getenv("CHROMADB_PATH", ""))
-    if not client:
+def get_chroma_collections(chroma_client: ClientAPI) -> list[str]:
+    if not chroma_client:
         return []
-    return client.list_collections()
+    return [str(col) for col in chroma_client.list_collections()]
 
 
 def chroma_retriever(
-    chroma_path: str | None,
+    chroma_client: ClientAPI,
     query_text: str,
     collection_name: str,
     n_results: int = 5,
 ):
-    client = chromadb.PersistentClient(path=chroma_path if chroma_path else os.getenv("CHROMADB_PATH", ""))
-    collection = client.get_collection(name=collection_name)
+    collection = chroma_client.get_collection(name=collection_name)
     embedding_function = DefaultEmbeddingFunction()
     query_embeddings = embedding_function([query_text]) # type: ignore
 

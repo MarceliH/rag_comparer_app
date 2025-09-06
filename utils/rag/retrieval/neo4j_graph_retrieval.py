@@ -41,6 +41,14 @@ Question:
 {question}"""
 
 
+def instantiate_neo4j_graph(uri: str | None, username: str | None, password: str | None) -> Neo4jGraph | None:
+    try:
+        return Neo4jGraph(url=uri, username=username, password=password, sanitize=True, refresh_schema=True) # langchain function already handles None values with checking environment variables
+    except Exception as e:
+        print(f"Error instantiating Neo4jGraph: {e}")
+        return None
+
+
 def expand_query(cypher: str, depth: int = 2, top_k: int = 50) -> str | None:
     # Remove RETURN and ORDER and LIMIT
     cypher_cleaned = re.sub(r"(?i)\bRETURN\b.+?(?=(?:\bORDER\s+BY\b|\bLIMIT\b|$))", "", cypher, flags=re.DOTALL)
@@ -100,9 +108,7 @@ def format_graph_result(result: dict) -> str:
 
 
 def neo4j_text2cypher_retriever(
-    uri: str | None,
-    username: str | None,
-    password: str | None,
+    graph: Neo4jGraph,
     llm_model: str | None,
     llm_key: str | None,
     query_text: str,
@@ -126,10 +132,8 @@ def neo4j_text2cypher_retriever(
         cypher_generation_prompt_query | llm | StrOutputParser()
     )
 
-    graph = Neo4jGraph(url=uri,username=username,password=password,sanitize = True, refresh_schema=True)
-
     raw_schema = format_schema(graph.get_structured_schema, is_enhanced=False)
-    graph_schema = re.sub(r', embedding: LIST', '', raw_schema)
+    graph_schema = re.sub(r', embedding: LIST', '', raw_schema) # remove unnecessary for cypher generation embedding property
 
     args = {
         "question": query_text,
@@ -197,14 +201,11 @@ def neo4j_text2cypher_retriever(
         "top_k": top_k,
     }
 
-from langchain_neo4j import Neo4jGraph
-from langchain.embeddings import HuggingFaceEmbeddings
-import time
 
 def format_graph_result_vector(result: dict) -> str:
     """Format graph paths for readability."""
-    nodes = [str(n) for n in result.get("path_nodes", [])]  # already processed in Cypher
-    rels = result.get("path_rels", [])  # already strings from Cypher
+    nodes = [str(n) for n in result.get("path_nodes", [])]
+    rels = result.get("path_rels", [])
 
     path_parts = []
     for i, node in enumerate(nodes):
@@ -240,9 +241,7 @@ RETURN n, score, path_nodes, path_rels
 
 
 def neo4j_vector_retriever(
-    uri: str | None,
-    username: str | None,
-    password: str | None,
+    graph: Neo4jGraph,
     query_text: str,
     top_k: int = 5,
     traversal_depth: int = 2,
@@ -250,17 +249,11 @@ def neo4j_vector_retriever(
 ):
     start_time = time.time()
 
-    # Embed the query
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     query_embedding = embeddings.embed_query(query_text)
 
-    # Connect to Neo4j
-    graph = Neo4jGraph(url=uri, username=username, password=password, sanitize=True)
-
-    # Prepare Cypher with .format only for depth, use $query_embedding and $top_k as parameters
     cypher_query_final = cypher_query.format(depth=traversal_depth)
 
-    # Run query with parameters
     results = graph.query(
         cypher_query_final,
         params={"query_embedding": query_embedding, "top_k": top_k}
@@ -268,7 +261,6 @@ def neo4j_vector_retriever(
 
     retrieval_time = time.time() - start_time
 
-    # Format context
     formatted_context = "\n".join(format_graph_result_vector(r) for r in results)
 
     return {

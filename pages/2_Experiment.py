@@ -1,10 +1,9 @@
 import streamlit as st
 import utils.session_controler as sc
-from utils.rag.retrieval.chroma_retrieval import get_chroma_collections
 from utils.raport_parser import RagReport
-from utils.rag.generation.mistralai_generation import llm_simple_query, get_available_models, llm_rag_query, rag_system_prompt_template, rag_user_prompt_template
-from utils.rag.retrieval.chroma_retrieval import chroma_retriever
-from utils.rag.retrieval.neo4j_graph_retrieval import neo4j_text2cypher_retriever, cypher_generation_prompt_template
+from utils.rag.generation.mistralai_generation import get_available_models, llm_rag_query, rag_system_prompt_template, rag_user_prompt_template
+from utils.rag.retrieval.chroma_retrieval import chroma_retriever, get_chroma_collections, instantiate_chroma_client
+from utils.rag.retrieval.neo4j_graph_retrieval import instantiate_neo4j_graph, neo4j_text2cypher_retriever, cypher_generation_prompt_template
 import pandas as pd
 import json
 import time
@@ -36,6 +35,21 @@ if not all_set:
 elif not all_correct:
     st.warning("Some of the required variables are not checked. Please go to Setup page.")
 
+# Initialize ChromaDB client
+chroma_client = instantiate_chroma_client(chroma_path=sc.gets("CHROMADB_PATH"))
+if chroma_client is None:
+    st.error("ChromaDB client could not be instantiated. Please check the CHROMADB_PATH variable in Setup page.")
+    st.stop()
+
+# Initialize Neo4j graph
+neo4j_graph = instantiate_neo4j_graph(
+    uri=sc.gets("NEO4J_URI"),
+    username=sc.gets("NEO4J_USERNAME"),
+    password=sc.gets("NEO4J_PASSWORD"),
+)
+if neo4j_graph is None:
+    st.error("Neo4j graph could not be instantiated. Please check the Neo4j connection variables in Setup page.")
+    st.stop()
 
 
 ## PAGE ##
@@ -86,7 +100,7 @@ with right_col:
     with col1:
         selected_chroma_collection = st.selectbox(
             "Select Chroma collection",
-            options=get_chroma_collections()
+            options=get_chroma_collections(chroma_client)
         )
     with col2:
         top_k_vector = st.slider(
@@ -208,9 +222,7 @@ if st.button("Run experiment", icon="🚀", use_container_width=True):
             with st.spinner("Retrieving from graph database..."):
                 if graph_retriever_type == "text2cypher":
                     graph_retrieval_result = neo4j_text2cypher_retriever(
-                        uri=sc.gets("NEO4J_URI"),
-                        username=sc.gets("NEO4J_USERNAME"),
-                        password=sc.gets("NEO4J_PASSWORD"),
+                        graph=neo4j_graph,
                         llm_model=model_name,
                         llm_key=sc.gets("MISTRALAI_API_KEY"),
                         query_text=query,
@@ -224,9 +236,7 @@ if st.button("Run experiment", icon="🚀", use_container_width=True):
                 else:
                     from utils.rag.retrieval.neo4j_graph_retrieval import neo4j_vector_retriever
                     graph_retrieval_result = neo4j_vector_retriever(
-                        uri=sc.gets("NEO4J_URI"),
-                        username=sc.gets("NEO4J_USERNAME"),
-                        password=sc.gets("NEO4J_PASSWORD"),
+                        graph=neo4j_graph,
                         query_text=query,
                         top_k=top_k_graph,
                         traversal_depth=traverse_graph_depth,
@@ -236,7 +246,7 @@ if st.button("Run experiment", icon="🚀", use_container_width=True):
             # Vector retrieval
             with st.spinner("Retrieving from vector store..."):
                 vector_retrieval_result = chroma_retriever(
-                    sc.gets("CHROMADB_PATH"),
+                    chroma_client,
                     query,
                     selected_chroma_collection,
                     top_k_vector,
