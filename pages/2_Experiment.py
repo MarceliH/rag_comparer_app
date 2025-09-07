@@ -1,6 +1,6 @@
 import streamlit as st
 import utils.session_controler as sc
-from utils.raport_parser import RagReport
+from utils.raport_parser import RagReport, RagReportSaver
 from utils.rag.generation.mistralai_generation import get_available_models, llm_rag_query, rag_system_prompt_template, rag_user_prompt_template
 from utils.rag.retrieval.chroma_retrieval import chroma_retriever, get_chroma_collections, instantiate_chroma_client
 from utils.rag.retrieval.neo4j_graph_retrieval import instantiate_neo4j_graph, neo4j_text2cypher_retriever, cypher_generation_prompt_template
@@ -14,50 +14,30 @@ st.set_page_config(
     layout="wide"
 )
 
-sc.initialize("setup_required_variables")
+with st.spinner("Connecting..."):
+    # Initialize ChromaDB client
+    if "chroma_client" not in st.session_state:
+        chroma_client = instantiate_chroma_client(chroma_path=sc.gets("CHROMADB_PATH"))
+        if chroma_client is None:
+            st.error("ChromaDB client could not be instantiated. Please check the CHROMADB_PATH variable in Setup page.")
+            st.stop()
+        st.session_state.chroma_client = chroma_client
+    else:
+        chroma_client = st.session_state.chroma_client
 
-# provide info for user about required variables
-all_set = True
-all_correct = True
-if sc.get("setup_required_variables") is None:
-    all_correct = False
-else:
-    for variable in sc.get("setup_required_variables"):
-        if variable["state"] == 0:
-            all_set = False
-            break
-        if variable["state"] == 1:
-            all_correct = False
-
-if not all_set:
-    st.error("Not all required variables are set. Please go to Setup page.")
-    st.stop()
-elif not all_correct:
-    st.warning("Some of the required variables are not checked. Please go to Setup page.")
-
-# Initialize ChromaDB client
-if "chroma_client" not in st.session_state:
-    chroma_client = instantiate_chroma_client(chroma_path=sc.gets("CHROMADB_PATH"))
-    if chroma_client is None:
-        st.error("ChromaDB client could not be instantiated. Please check the CHROMADB_PATH variable in Setup page.")
-        st.stop()
-    st.session_state.chroma_client = chroma_client
-else:
-    chroma_client = st.session_state.chroma_client
-
-# Initialize Neo4j graph
-if "neo4j_graph" not in st.session_state:
-    neo4j_graph = instantiate_neo4j_graph(
-        uri=sc.gets("NEO4J_URI"),
-        username=sc.gets("NEO4J_USERNAME"),
-        password=sc.gets("NEO4J_PASSWORD"),
-    )
-    if neo4j_graph is None:
-        st.error("Neo4j graph could not be instantiated. Please check the Neo4j connection variables in Setup page.")
-        st.stop()
-    st.session_state.neo4j_graph = neo4j_graph
-else:
-    neo4j_graph = st.session_state.neo4j_graph
+    # Initialize Neo4j graph
+    if "neo4j_graph" not in st.session_state:
+        neo4j_graph = instantiate_neo4j_graph(
+            uri=sc.gets("NEO4J_URI"),
+            username=sc.gets("NEO4J_USERNAME"),
+            password=sc.gets("NEO4J_PASSWORD"),
+        )
+        if neo4j_graph is None:
+            st.error("Neo4j graph could not be instantiated. Please check the Neo4j connection variables in Setup page.")
+            st.stop()
+        st.session_state.neo4j_graph = neo4j_graph
+    else:
+        neo4j_graph = st.session_state.neo4j_graph
 
 
 ## PAGE ##
@@ -330,6 +310,34 @@ if st.button("Run experiment", icon="🚀", use_container_width=True):
             with st.expander(f"Report for query: {query}"):
                 report.streamlit_display()
 
+            # Save report to session state
+            sc.initialize("rag_reports", [])
+            st.session_state.rag_reports.append(report)
+            
+    st.rerun()
+
+if "rag_reports" in st.session_state and st.session_state.rag_reports:
+    for rep in st.session_state.rag_reports:
+        with st.expander(f"Report for query: {rep.data['query']}"):
+            rep.streamlit_display()
+    
+    st.write("Save reports")
+
+    rep1, rep2, rep3 = st.columns([1,1,2])
+    with rep1:
+        save_path = st.text_input("Enter file path to save reports", placeholder="/path/to/save", label_visibility="collapsed")
+
+    with rep2:
+        if st.button("Save to file", icon="💾", use_container_width=True):
+            if not st.session_state.rag_reports:
+                st.warning("No reports to save.")
+            else:
+                saver = RagReportSaver(st.session_state.rag_reports)
+                if save_path:
+                    filepath = saver.save_json(save_path)
+                    st.success(f"Reports saved to '{filepath}'.")
+                else:
+                    st.warning("Please provide a valid file path.")
 
 
 

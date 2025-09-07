@@ -1,6 +1,11 @@
+import json
+import csv
 import streamlit as st
 from mistralai.models.chatcompletionresponse import ChatCompletionResponse
 from neo4j_graphrag.generation.types import RagResultModel
+import os
+from datetime import datetime
+import pandas as pd
 
 
 class RagReport:
@@ -97,45 +102,60 @@ class RagReport:
         gret = self.data["retrieval"]["graph_retriever"]
         gen = self.data["generation"]
 
-        col_vr, col_gr = st.columns(2)
+        col_l1, col_r1 = st.columns(2)
 
-        with col_vr:
-            st.markdown(f"**Vector Response (Time: {gen['vector_generation_time']:.2f} s)**")
+        with col_l1:
+            st.subheader(f"Vector Response")
             st.write(gen["vector_response"])
+            st.write(f"Generation Time: {gen['vector_generation_time']:.2f} s")
 
-        with col_gr:
-            st.markdown(f"**Graph Response (Time: {gen['graph_generation_time']:.2f} s)**")
+
+        with col_r1:
+            st.subheader(f"Graph Response")
             st.write(gen["graph_response"])
+            st.write(f"Generation Time: {gen['graph_generation_time']:.2f} s")
 
-        col_v, col_g = st.columns(2)
 
-        with col_v:
-            st.markdown("### Vector Retrieval")
-            st.write(f"Retrieval Time: {vret['retrieval_time']:.2f} s")
-            st.write(f"Top-k: {vret['top_k']}")
+        col_l2, col_r2 = st.columns(2)
+
+        with col_l2:
+            st.subheader("Vector Retrieval")
             if vret.get("context"):
                 st.write("Context:")
                 st.write(vret["context"])
-            for i in range(len(vret["document_names"])):
-                st.markdown(f"**Doc {i+1}:** {vret['document_names'][i]}")
-                st.markdown(f"*Score:* {vret['distances'][i]:.4f}")
-                st.write(vret["documents"][i])
-            st.markdown(f"**Vector Response (Time: {gen['vector_generation_time']:.2f} s)**")
-            st.write(gen["vector_response"])
+            st.write(f"Top-k: {vret['top_k']}")
+            st.write(f"Retrieval Time: {vret['retrieval_time']:.2f} s")
 
-        with col_g:
-            st.markdown("### Graph Retrieval")
-            st.write(f"Retrieval Time: {gret['retrieval_time']:.2f} s")
-            st.write(f"Top-k: {gret['top_k']}")
+        with col_r2:
+            st.subheader("Graph Retrieval")
             if gret.get("context"):
                 st.write("Context:")
                 st.write(gret["context"])
-            st.write(f"Cypher: {gret['generated_cypher']}")
-            st.write(f"Expanded: {gret['expanded']}, Expansion Success: {gret['expansion_success']}")
-            st.write(f"Generation Count: {gret['generation_count']}")
+            st.write(f"Top-k: {gret['top_k']}")
+            st.write(f"Retrieval Time: {gret['retrieval_time']:.2f} s")
+
+        col_l3, col_r3 = st.columns(2)
+
+        with col_l3:
+            if vret["document_names"]:
+                docs_table = pd.DataFrame({
+                    "Document Name": vret["document_names"],
+                    "Score": vret["distances"],
+                    "Document": vret["documents"]
+                })
+                st.markdown("**Retrieved Documents:**")
+                st.dataframe(docs_table, use_container_width=True)
+
+        with col_r3:
             if gret["cypher_query"]:
                 st.write("Cypher Query:")
                 st.code(gret["cypher_query"])
+            if gret['generation_count'] == 0:
+                st.write("Generation Count: No generations.")
+            else:
+                st.write(f"Generation Count: {gret['generation_count']}")
+                st.write(f"Generated Cypher: {gret['generated_cypher']}")
+                st.write(f"Expanded: {gret['expanded']}, Expansion Success: {gret['expansion_success']}")
             if gret["graph_data"]:
                 st.write("Graph Data:")
                 st.write(gret["graph_data"])
@@ -145,5 +165,38 @@ class RagReport:
         st.write(f"Temperature: {gen['temperature']}")
         st.write(f"Max Tokens: {gen['max_tokens']}")
         st.write("Prompt Templates:")
-        st.write(f"User: {gen['prompt']['user_template']}")
-        st.write(f"System: {gen['prompt']['system_template']}")
+        st.write("User:")
+        st.write(f"{gen['prompt']['user_template']}")
+        st.write("System:")
+        st.write(f"{gen['prompt']['system_template']}")
+
+
+def _json_serializer(obj):
+    from neo4j.time import DateTime
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if 'neo4j.time.DateTime' in str(type(obj)):
+        return str(obj)
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+class RagReportSaver:
+    def __init__(self, reports=None):
+        self.reports = reports if reports is not None else []
+
+    def add_report(self, report: RagReport):
+        self.reports.append(report)
+
+    def _get_filepath(self, filepath, ext):
+        if os.path.isdir(filepath):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"rag_report_{timestamp}.{ext}"
+            return os.path.join(filepath, filename)
+        if not filepath.lower().endswith(f".{ext}"):
+            filepath = f"{filepath}.{ext}"
+        return filepath
+
+    def save_json(self, filepath):
+        filepath = self._get_filepath(filepath, "json")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump([r.to_json() for r in self.reports], f, ensure_ascii=False, indent=2, default=_json_serializer)
+        return filepath
